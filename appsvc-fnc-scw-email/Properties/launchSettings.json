@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "appsvc_fnc_scw_email": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7009",
+      "launchBrowser": false
+    }
+  }
+}
