@@ -27,8 +27,11 @@ namespace appsvc_fnc_scw_email
             string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
             dynamic data = JsonConvert.DeserializeObject(requestBody);
             name = name ?? data?.name;
-            Auth auth = new Auth();
-            var graphAPIAuth = auth.graphAuth(log);
+            var scopes = new[] { "user.read mail.send" };
+
+            ROPCConfidentialTokenCredential auth = new ROPCConfidentialTokenCredential();
+
+            var graphClient = new GraphServiceClient(auth, scopes);
 
             string emails = "";
             string siteUrl = "";
@@ -40,7 +43,7 @@ namespace appsvc_fnc_scw_email
             string EmailSender = "";
             string HD_Email = "";
 
-            SendEmailToUser(graphAPIAuth, log, emails, siteUrl, displayName, status, comments, requester, requesterEmail, EmailSender, HD_Email);
+            SendEmailToUser(graphClient, log, emails, siteUrl, displayName, status, comments, requester, requesterEmail, EmailSender, HD_Email);
             string responseMessage = string.IsNullOrEmpty(name)
                 ? "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
                 : $"Hello, {name}. This HTTP triggered function executed successfully.";

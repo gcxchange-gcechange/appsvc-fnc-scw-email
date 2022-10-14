@@ -5,14 +5,28 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Graph;
 using Microsoft.Identity.Client;
+using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
+using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace appsvc_fnc_scw_email
 {
-    class Auth
+    public class ROPCConfidentialTokenCredential : Azure.Core.TokenCredential
     {
-        public GraphServiceClient graphAuth(ILogger log)
+        // Implementation of the Azure.Core.TokenCredential class
+        string _username = "";
+        string _password = "";
+        string _tenantId = "";
+        string _clientId = "";
+        string _clientSecret = "";
+
+        string _tokenEndpoint = "";
+
+        public ROPCConfidentialTokenCredential()
         {
 
             IConfiguration config = new ConfigurationBuilder()
@@ -21,43 +35,83 @@ namespace appsvc_fnc_scw_email
            .AddEnvironmentVariables()
            .Build();
 
-            log.LogInformation("C# HTTP trigger function processed a request.");
-            var scopes = new string[] { "https://graph.microsoft.com/.default" };
-            var keyVaultUrl = config["keyVaultUrl"];
-            var keyname = config["keyname"];
-            var tenantid = config["tenantid"];
-            var cliendID = config["clientid"];
-
-            SecretClientOptions secretoptions = new SecretClientOptions()
+            SecretClientOptions options = new SecretClientOptions()
             {
                 Retry =
                 {
-                    Delay= TimeSpan.FromSeconds(2),
+                    Delay = TimeSpan.FromSeconds(2),
                     MaxDelay = TimeSpan.FromSeconds(16),
                     MaxRetries = 5,
-                    Mode = RetryMode.Exponential
-                 }
-            };
-            var client = new SecretClient(new Uri(keyVaultUrl), new DefaultAzureCredential(), secretoptions);
-
-            KeyVaultSecret secret = client.GetSecret(keyname);
-
-            var clientSecret = "rx18Q~TXy9GLAeojRoNg2F56V5rrtXHMn16aedjD";
-            var tenantId = "28d8f6f0-3824-448a-9247-b88592acc8b7";
-            var clientId = "4bb150ca-b985-4d26-b306-ffde3119c570";
-
-            // using Azure.Identity;
-            var options = new TokenCredentialOptions
-            {
-                AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+                    Mode = Azure.Core.RetryMode.Exponential
+                }
             };
 
-            // https://docs.microsoft.com/dotnet/api/azure.identity.clientsecretcredential
-            var clientSecretCredential = new ClientSecretCredential(
-                tenantId, clientId, clientSecret, options);
+            var client = new SecretClient(new System.Uri(config["keyVaultUrl"]), new DefaultAzureCredential(), options);
+            KeyVaultSecret secret_client = client.GetSecret(config["secretNameClient"]);
+            var clientSecret = secret_client.Value;
 
-            var graphClient = new GraphServiceClient(clientSecretCredential, scopes);
-            return graphClient;
+            KeyVaultSecret secret_password = client.GetSecret(config["password_delegated"]);
+            var password = secret_password.Value;
+
+            // Public Constructor
+            _username = config["delegated_username"];
+            _password = password;
+            _tenantId = config["tenantid"];
+            _clientId = config["clientid"];
+            _clientSecret = clientSecret;
+
+            _tokenEndpoint = "https://login.microsoftonline.com/" + _tenantId + "/oauth2/v2.0/token";
         }
+
+        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        {
+            HttpClient httpClient = new HttpClient();
+
+            // Create the request body
+            var Parameters = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("client_id", _clientId),
+                new KeyValuePair<string, string>("client_secret", _clientSecret),
+                new KeyValuePair<string, string>("scope", string.Join(" ", requestContext.Scopes)),
+                new KeyValuePair<string, string>("username", _username),
+                new KeyValuePair<string, string>("password", _password),
+                new KeyValuePair<string, string>("grant_type", "password")
+            };
+
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, _tokenEndpoint)
+            {
+                Content = new FormUrlEncodedContent(Parameters)
+            };
+            var response = httpClient.SendAsync(request).Result.Content.ReadAsStringAsync().Result;
+            dynamic responseJson = JsonConvert.DeserializeObject(response);
+            var expirationDate = DateTimeOffset.UtcNow.AddMinutes(60.0);
+            return new AccessToken(responseJson.access_token.ToString(), expirationDate);
+        }
+
+        public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        {
+            HttpClient httpClient = new HttpClient();
+
+            // Create the request body
+            var Parameters = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("client_id", _clientId),
+                new KeyValuePair<string, string>("client_secret", _clientSecret),
+                new KeyValuePair<string, string>("scope", string.Join(" ", requestContext.Scopes)),
+                new KeyValuePair<string, string>("username", _username),
+                new KeyValuePair<string, string>("password", _password),
+                new KeyValuePair<string, string>("grant_type", "password")
+            };
+
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, _tokenEndpoint)
+            {
+                Content = new FormUrlEncodedContent(Parameters)
+            };
+            var response = httpClient.SendAsync(request).Result.Content.ReadAsStringAsync().Result;
+            dynamic responseJson = JsonConvert.DeserializeObject(response);
+            var expirationDate = DateTimeOffset.UtcNow.AddMinutes(60.0);
+            return new ValueTask<AccessToken>(new AccessToken(responseJson.access_token.ToString(), expirationDate));
+        }
+        // }
     }
 }
